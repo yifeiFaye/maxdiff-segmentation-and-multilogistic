@@ -28,9 +28,50 @@ summary(db0$SUPSAT_1)
 ```
 
 After going through all variables and understanding the question type, we created a list of potential inputs, saved in Excel sheet. Now read in the variable list and create the data set that we are going to build the model on. In this case, I created a data set called *db* including only potential inputs, identity, and one set of segment id. Let's first explore 3 segment solution. Here, we are going to try multi-level logistic regression model. 
-```{r model}
+
+```{r stepmultinom}
 vars <- as.character(read.csv("variable list.csv", header = TRUE)$variable)
 db <- merge(db0[, c("identity", vars)], id[, c("identity", "seg3")], by = "identity")
+db <- db[,-1]
+db$seg3 <- as.factor(db$seg3)
 
+library(nnet)
+# multinom logistic inputs type has to be numeric
+mlogit <- multinom(seg3~., db, trace = 0)
+stp.mlogit <- step(mlogit, direction = "backward", trace = 0)
+coefs <- stp.mlogit$coefnames[-1]
+coefs
+```
+
+Use the model inputs selected by backward selection method. Then let's see if this model will give us a relative stable error rate on testing data set. Split the data set into 80/20. Train model on the randomly splitted 80% of the total sample and test the error rate on the rest of the sample. 
+
+```{r multinom}
+mdb <- db[, c(coefs,"seg3")]
+for (i in 1:20){
+  set.seed(100*i)
+  train <- sample(1:nrow(db), 0.8*nrow(db))
+  mdb.train <- mdb[train,]
+  mlogit <- multinom(seg3~., mdb.train, trace = 0)
+  id <- predict(mlogit, mdb[-train,])
+  err <- sum(id != mdb[-train,]$seg3)/nrow(mdb[-train,])
+  print(paste("Seed is ", 100*i, "; Error rate is ", round(err, 3), sep = ""))  
+}
 
 ```
+
+We could see that testing sample error rates are acceptable and relatively stable. So we settle with this model and train the model one more time on the entire sample. The error rate for entire sample is 39.1% percent.
+```{r multinom retrain}
+mlogit <- multinom(seg3~., mdb, trace = 0)
+mdb$id <- predict(mlogit, mdb)
+err <- sum(mdb$id != mdb$seg3)/nrow(mdb)
+print(paste("The best multinom model error rate is ", round(err, 3), sep = ""))  
+```
+
+## Conclusion
+
+The error rate on total sample is not very ideal. It could be that the model inputs we selected are not good indicators on maxdiff segmentation result. It could be that other sections of the questionnaire are not really related to the maxdiff result. Next step, we could dig into the correlation between maxdiff result and inputs from other sections. Then we could try a different data set see if we could get a better result. 
+
+
+
+
+
